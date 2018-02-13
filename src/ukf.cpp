@@ -85,6 +85,12 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
   if (!is_initialized_) {
     P_ = MatrixXd::Identity(5, 5);
 
+    // Initialize weights
+    weights_(0) = lambda_ / (n_aug_ + lambda_);
+    for (int i = 1; i < weights_.size(); i++) {
+      weights_(i) = (1/2) / (n_aug_ + lambda_); 
+    }
+
     // Radar Init
     if (meas_package.sensor_type_ == MeasurementPackage::RADAR) {
       double rho = meas_package.raw_measurements_[0];
@@ -104,10 +110,35 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
             0,
             0;
     }
+
     // Laser Init
     else if (meas_package.sensor_type_ == MeasurementPackage::LASER) {
-
+      // Velocity unknown from first measurement
+      double px = meas_package.raw_measurements_[0];
+      double py = meas_package.raw_measurements_[1];
+      if (fabs(px) < EPSILON) {
+        px = EPSILON;
+      }
+      if (fabs(py) < EPSILON) {
+        py = EPSILON;
+      }
+      x_ << px, 
+            py, 
+            0, 
+            0, 
+            0;
     }
+    time_us_ = meas_package.timestamp_;
+    is_initialized_ = true;
+  }
+  time_us_ = meas_package.timestamp_;
+  double dt = (meas_package.timestamp_ - time_us_) / 1000000;
+  Prediction(dt);
+  if (use_laser_ && meas_package.sensor_type_ == MeasurementPackage::LASER) {
+    UpdateLidar(meas_package);
+  }
+  if (use_radar_ && meas_package.sensor_type_ == MeasurementPackage::RADAR) {
+    UpdateRadar(meas_package);
   }
 }
 
@@ -117,12 +148,34 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
  * measurement and this one.
  */
 void UKF::Prediction(double delta_t) {
-  /**
-  TODO:
+  // Augmented Mean
+  VectorXd x_aug = VectorXd(n_aug_);
+  x_aug.fill(0);
+  x_aug.head(n_x_) = x_;
 
-  Complete this function! Estimate the object's location. Modify the state
-  vector, x_. Predict sigma points, the state, and the state covariance matrix.
-  */
+  // Sigma Points of Augmented State
+  MatrixXd Xsig_aug = MatrixXd(n_aug_, n_sig_);
+  Xsig_aug.col(0) = x_aug;
+
+  // Augmented State Covarience
+  MatrixXd P_aug = MatrixXd(n_aug_, n_aug_);
+  P_aug.fill(0);
+  P_aug.topLeftCorner(n_x_, n_x_);
+  P_aug(5, 5) = pow(std_a_, 2);
+  P_aug(6, 6) = pow(std_yawdd_, 2);
+
+  // Square root of Augmented State Covarience
+  MatrixXd P_aug_sqrt = P_aug.llt().matrixL();
+
+  // Sigma Point Creation
+  VectorXd sqrt_n_aug_lambda;
+  for (int i = 1; i <= n_sig_; i++) {
+    sqrt_n_aug_lambda = sqrt(lambda_ + n_aug_) * P_aug_sqrt.col(i - 1);
+    Xsig_aug.col(i) = x_aug + sqrt_n_aug_lambda;
+    Xsig_aug.col(i + n_aug_) = x_aug - sqrt_n_aug_lambda;
+  }
+
+  // Sigma Point Prediction 
 }
 
 /**
@@ -153,4 +206,8 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
 
   You'll also need to calculate the radar NIS.
   */
+}
+
+void UKF::CommonUpdate(MeasurementPackage meas_package) {
+
 }

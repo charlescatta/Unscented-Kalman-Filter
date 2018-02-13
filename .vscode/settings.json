@@ -1,0 +1,10 @@
+{
+  "files.associations": {
+    "geometry": "cpp",
+    "locale": "cpp",
+    "string": "cpp",
+    "iosfwd": "cpp",
+    "iterator": "cpp",
+    "vector": "cpp"
+  }
+}

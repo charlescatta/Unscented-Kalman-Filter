@@ -110,6 +110,13 @@ public:
    * @param meas_package The measurement at k+1
    */
   void UpdateRadar(MeasurementPackage meas_package);
+
+
+  /**
+   * Updates the state and the state covariance matrix using the standard common UKF update processes
+   * @param meas_package The measurement at k+1
+   */
+  void UKF::CommonUpdate(MeasurementPackage meas_package);
 };
 
 #endif /* UKF_H */
