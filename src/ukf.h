@@ -116,7 +116,7 @@ public:
    * Updates the state and the state covariance matrix using the standard common UKF update processes
    * @param meas_package The measurement at k+1
    */
-  void UKF::CommonUpdate(MeasurementPackage meas_package);
+  void CommonUpdate(MeasurementPackage meas_package, int n, MatrixXd sig);
 };
 
 #endif /* UKF_H */

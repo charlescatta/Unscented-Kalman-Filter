@@ -27,7 +27,7 @@ public:
  /**
   * A helper method to normalize an angle to be between -pi and pi.
   */
-  void NormalizeAngle(double *angle);
+  static void NormalizeAngle(double *angle);
 };
 
 #endif /* TOOLS_H_ */

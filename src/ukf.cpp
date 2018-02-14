@@ -10,10 +10,6 @@ using std::vector;
 
 #define EPSILON 0.0001
 
-/**
- * Initializes Unscented Kalman filter
- * This is scaffolding, do not modify
- */
 UKF::UKF() {
   is_initialized_ = false;
   // if this is false, laser measurements will be ignored (except during init)
@@ -175,7 +171,60 @@ void UKF::Prediction(double delta_t) {
     Xsig_aug.col(i + n_aug_) = x_aug - sqrt_n_aug_lambda;
   }
 
-  // Sigma Point Prediction 
+  // Sigma Point Prediction
+  for (int i = 0; i < n_sig_; i++) {
+    MatrixXd x = MatrixXd(n_aug_, 1);
+    MatrixXd CTRV_det = MatrixXd(n_aug_, 1);
+    MatrixXd CTRV_nondet = MatrixXd(n_aug_, 1);
+
+    double px       = Xsig_aug(0, i);
+    double py       = Xsig_aug(1, i);
+    double v        = Xsig_aug(2, i);
+    double psi      = Xsig_aug(3, i);
+    double psi_dot  = Xsig_aug(4, i);
+    double nu_aug   = Xsig_aug(5, i);
+    double nu_2_dot = Xsig_aug(6, i);
+    double half_dt_2 = 0.5 * pow(delta_t, 2);
+    
+    x << px,
+       py,
+       v,
+       psi,
+       psi_dot;
+           
+    if (psi_dot == 0) {
+      CTRV_det << v * cos(psi) * delta_t,
+                  v * sin(psi) * delta_t,
+                  0,
+                  psi_dot * delta_t,
+                  0;
+    } else {
+        double v_over_psi_dot = v / psi_dot;
+        double psi_dot_dt = psi_dot * delta_t;
+        // Deterministic part of the CTRV model
+        CTRV_det << v_over_psi_dot * (sin(psi + psi_dot_dt) - sin(psi)),
+                    v_over_psi_dot * (-cos(psi + psi_dot_dt) + cos(psi)),
+                    0,
+                    psi_dot_dt,
+                    0;
+    }
+    // Non deterministic part of the CTRV model
+    CTRV_nondet <<  half_dt_2 * cos(psi) * nu_aug,
+                    half_dt_2 * sin(psi) * nu_aug,
+                    delta_t * nu_aug,
+                    half_dt_2 * nu_2_dot,
+                    delta_t * nu_2_dot;
+    
+    Xsig_pred_.col(i) = x + CTRV_det + CTRV_nondet; 
+  }
+  x_ = Xsig_pred_ * weights_;
+  P_.fill(0);
+
+  for (int i = 0; i < n_sig_; i++) {
+    VectorXd x_delta = Xsig_pred_.col(i) = x_;
+    Tools::NormalizeAngle(&x_delta(3));
+    P_ += weights_(i) * x_delta * x_delta.transpose();
+  } 
 }
 
 /**
@@ -183,14 +232,9 @@ void UKF::Prediction(double delta_t) {
  * @param {MeasurementPackage} meas_package
  */
 void UKF::UpdateLidar(MeasurementPackage meas_package) {
-  /**
-  TODO:
-
-  Complete this function! Use lidar data to update the belief about the object's
-  position. Modify the state vector, x_, and covariance, P_.
-
-  You'll also need to calculate the lidar NIS.
-  */
+  int n = 2;
+  MatrixXd sig = Xsig_pred_.block(0, 0, n, n_sig_);
+  CommonUpdate(meas_package, n, sig);
 }
 
 /**
@@ -198,16 +242,74 @@ void UKF::UpdateLidar(MeasurementPackage meas_package) {
  * @param {MeasurementPackage} meas_package
  */
 void UKF::UpdateRadar(MeasurementPackage meas_package) {
-  /**
-  TODO:
+  int n = 3;
+  MatrixXd sig = MatrixXd(n, n_sig_);
 
-  Complete this function! Use radar data to update the belief about the object's
-  position. Modify the state vector, x_, and covariance, P_.
-
-  You'll also need to calculate the radar NIS.
-  */
+  for (int i = 0; i < n_sig_; i++) {
+    double px       = Xsig_pred_(0, i);
+    double py       = Xsig_pred_(1, i);
+    double v        = Xsig_pred_(2, i);
+    double psi      = Xsig_pred_(3, i);
+    sig(0, i) = sqrt(px * px + py * py);
+    sig(1, i) = atan2(py, px);
+    sig(2, i) = (px * cos(psi) * v) + (py * sin(psi) * v);
+  }
+  CommonUpdate(meas_package, n, sig);
 }
 
-void UKF::CommonUpdate(MeasurementPackage meas_package) {
+/**
+ * Updates the state and the state covariance matrix using the common KF update procedures.
+ * @param {MeasurementPackage} meas_package
+ * @param {n} input measurement dimension
+ * @param {sig} sigma point matrix
+ */
+void UKF::CommonUpdate(MeasurementPackage meas_package, int n, MatrixXd sig) {
+  // Predicted Mean
+  VectorXd z_pred = VectorXd(n);
 
+  // Cross Correlation Matrix
+  MatrixXd TC = MatrixXd(n_x_, n);
+  TC.fill(0);
+
+  // Measurement Noise Covariance Matrix
+  MatrixXd R = MatrixXd(n, n);
+  
+  if (meas_package.sensor_type_ == MeasurementPackage::LASER) {
+    R = R_laser_;
+  }
+  else if (meas_package.sensor_type_ == MeasurementPackage::RADAR) {
+    R = R_radar_;
+  }
+
+  // Measurement Covariance Matrix
+  MatrixXd S = MatrixXd(n, n);
+  S.fill(0);
+
+  for (int i = 0; i < n_sig_; i++) {
+    VectorXd z_delta = sig.col(i) - z_pred;
+    Tools::NormalizeAngle(&z_delta(1));
+    S += weights_(i) * z_delta * z_delta.transpose();
+  }
+  S += R;
+
+
+  // Compute Cross Correlation
+  for (int i = 0; i < n_sig_; i++) {
+    VectorXd z_delta = sig.col(i) - z_pred;
+    if (meas_package.sensor_type_ == MeasurementPackage::RADAR) {
+      Tools::NormalizeAngle(&z_delta(3));
+    }
+    VectorXd x_delta = Xsig_pred_.col(i) - z_pred;
+    TC += weights_(i) * x_delta * z_delta.transpose();
+  }
+  // Compute Kalman Gain
+  MatrixXd K = TC * S.inverse();
+  VectorXd z_residual = meas_package.raw_measurements_ - z_pred;
+  if (meas_package.sensor_type_ == MeasurementPackage::RADAR) {
+    Tools::NormalizeAngle(&z_residual(1));
+  }
+
+  // Update
+  x_ += K * z_residual;
+  P_ += K * S * K.transpose();
 }

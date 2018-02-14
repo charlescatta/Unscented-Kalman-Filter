@@ -11,10 +11,24 @@ Tools::~Tools() {}
 
 VectorXd Tools::CalculateRMSE(const vector<VectorXd> &estimations,
                               const vector<VectorXd> &ground_truth) {
-  /**
-  TODO:
-    * Calculate the RMSE here.
-  */
+  VectorXd RMSE(4);
+  RMSE.fill(0);
+  if (estimations.size() != ground_truth.size()) {
+    std::cout << "Estimation and ground truth data are of different size" << std::endl;
+    return RMSE;
+  }
+  for(unsigned int i=0; i < estimations.size(); ++i){
+    VectorXd residual = estimations[i] - ground_truth[i];
+
+    // Coefficient-wise multiplication
+    residual = residual.array() * residual.array();
+    RMSE += residual;
+  }
+  // Calculate the mean
+  RMSE = RMSE / estimations.size();
+  RMSE = RMSE.array().sqrt();
+  return RMSE;
+
 }
 
 void Tools::NormalizeAngle(double *angle) {
